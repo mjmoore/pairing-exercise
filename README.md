@@ -1,3 +1,41 @@
+# Organisation Address
+
+ * Support address information when creating an organisation.
+ * Support adding an address for an existing organisation.
+
+## Design Considerations
+
+### 1. Optional Address
+
+ * Organisation addresses are added as an optional construct. The reason for doing so is to ensure theoretical backwards compatability. As an alternative, this could also be supported by adding an "v2" resource for `Organisation`s, which would include a mandatory address.
+
+ * Only a single address is supported, which may be restrictive in a real world setting. Adding support for multiple addresses per organisation should be trivial.
+
+ * A further improvement could be to remove the top level `country` field from the `Organisation`, but the requirements are unclear on what exactly the `country` alludes to. It could be the country of origin, country of operation or the country of registration - each of which may or may not be the same as the country found in the organisation address. 
+
+### 2. JPA versus JDBC
+
+I've chosen to swap out direct JDBC interaction for JPA via Hibernate for several reasons:
+ * Higher level of abstraction - domain entities instead of primitives
+ * Generated repositories for simple queries.
+ * Type safety. Consider `ps.setDate(3, Date.valueOf(org.dateFounded))` - the index is incorrect, which will only be discovered at runtime.
+
+JDBC does provide more fine-grained control over exactly what DML is issued to a DB, but this can also be achieved by using `@Query` and `@NativeQuery` annotations for a given repository.
+
+If JPA is undesirable for whatever reason, the a typesafe SQL generator like JOOQ could be employed.
+
+### 3. Test Containers
+
+The previous implementation required that the host environment has a DB running at a given port in order to run tests. I'm a strong proponent for enabling a developer to checkout a project and simply run the tests. To facilitate that, the tests were changed to run against test containers. This ensures a clean and up to date schema based on flyway migrations.
+
+### 4. Modelling & Mapping 
+
+In a simple application, I prefer to split models between `Entity`s and `DTO`s to separate concerns. The previous implementation modelled the DB table on an object named `*Response`. This can be confusing as one might expect that we're storing responses in the database, rather than explicit domain models.
+
+Simple mappers are generated during compilation via `MapStruct`. Slightly more complex mappings are hand written where necessary.
+
+-----------
+
 Pair Programming Exercise for Billie
 =============
 ### The Requirements

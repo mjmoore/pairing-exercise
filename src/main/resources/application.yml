@@ -1,0 +1,21 @@
+spring:
+  config:
+    import: optional:file:./database.env[.properties]
+  datasource:
+    driver-class-name: ${DATABASE_DRIVER}
+    url: ${DATABASE_URL}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+    sql:
+      init:
+        schema-locations: ${DATABASE_SCHEMA}
+        mode: always
+  jackson:
+    date-format: dd/MM/yyyy
+  jpa:
+    properties:
+      hibernate:
+        default_schema: ${DATABASE_SCHEMA}
+        format_sql: true
+        show_sql: false
+    open-in-view: false

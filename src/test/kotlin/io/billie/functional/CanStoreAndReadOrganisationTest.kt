@@ -1,19 +1,26 @@
 package io.billie.functional
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.billie.functional.data.Fixtures.bbcContactFixture
-import io.billie.functional.data.Fixtures.bbcFixture
+import com.fasterxml.jackson.module.kotlin.readValue
+import io.billie.countries.data.CityRepository
+import io.billie.countries.data.CountryRepository
 import io.billie.functional.data.Fixtures.orgRequestJson
 import io.billie.functional.data.Fixtures.orgRequestJsonCountryCodeBlank
 import io.billie.functional.data.Fixtures.orgRequestJsonCountryCodeIncorrect
-import io.billie.functional.data.Fixtures.orgRequestJsonNoName
 import io.billie.functional.data.Fixtures.orgRequestJsonNameBlank
 import io.billie.functional.data.Fixtures.orgRequestJsonNoContactDetails
 import io.billie.functional.data.Fixtures.orgRequestJsonNoCountryCode
 import io.billie.functional.data.Fixtures.orgRequestJsonNoLegalEntityType
-import io.billie.organisations.viewmodel.Entity
-import org.hamcrest.MatcherAssert.assertThat
-import org.hamcrest.core.IsEqual.equalTo
+import io.billie.functional.data.Fixtures.orgRequestJsonNoName
+import io.billie.generators.RequestGenerator
+import io.billie.organisations.data.ContactDetails
+import io.billie.organisations.data.ContactDetailsRepository
+import io.billie.organisations.data.Organisation
+import io.billie.organisations.data.OrganisationAddressRepository
+import io.billie.organisations.data.OrganisationRepository
+import io.billie.organisations.viewmodel.EntityResponse
+import io.billie.organisations.viewmodel.OrganisationResponse
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
@@ -21,29 +28,35 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment.DEFINED_PORT
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.http.MediaType.APPLICATION_JSON
-import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
-import java.util.*
+import org.testcontainers.junit.jupiter.Testcontainers
+import javax.transaction.Transactional
 
 
+@Transactional
+@Testcontainers
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 @SpringBootTest(webEnvironment = DEFINED_PORT)
-class CanStoreAndReadOrganisationTest {
+class CanStoreAndReadOrganisationTest(
+    @Autowired private val mockMvc: MockMvc,
+    @Autowired private val mapper: ObjectMapper,
+    @Autowired private val organisationRepository: OrganisationRepository,
+    @Autowired private val contactDetailsRepository: ContactDetailsRepository,
+    @Autowired private val addressRepository: OrganisationAddressRepository,
+    @Autowired private val cityRepository: CityRepository,
+    @Autowired private val countryRepository: CountryRepository
+
+) {
 
     @LocalServerPort
     private val port = 8080
 
-    @Autowired
-    private lateinit var mockMvc: MockMvc
-
-    @Autowired
-    private lateinit var mapper: ObjectMapper
-
-    @Autowired
-    private lateinit var template: JdbcTemplate
 
     @Test
     fun orgs() {
@@ -115,32 +128,87 @@ class CanStoreAndReadOrganisationTest {
         val result = mockMvc.perform(
             post("/organisations").contentType(APPLICATION_JSON).content(orgRequestJson())
         )
-        .andExpect(status().isOk)
-        .andReturn()
+            .andExpect(status().isOk)
+            .andReturn()
 
-        val response = mapper.readValue(result.response.contentAsString, Entity::class.java)
+        val response: EntityResponse = mapper.readValue(result.response.contentAsString)
 
-        val org: Map<String, Any> = orgFromDatabase(response.id)
-        assertDataMatches(org, bbcFixture(response.id))
+        val orgContactDetails: ContactDetails = response.id
+            .let(organisationRepository::findById)
+            .map(Organisation::contactDetails)
+            .orElseThrow()
 
-        val contactDetailsId: UUID = UUID.fromString(org["contact_details_id"] as String)
-        val contactDetails: Map<String, Any> = contactDetailsFromDatabase(contactDetailsId)
-        assertDataMatches(contactDetails, bbcContactFixture(contactDetailsId))
+        val contactDetails = contactDetailsRepository.findById(orgContactDetails.id)
+            .orElseThrow()
+
+        assertThat(contactDetails).usingRecursiveComparison().isEqualTo(orgContactDetails)
     }
 
-    fun assertDataMatches(reply: Map<String, Any>, assertions: Map<String, Any>) {
-        for (key in assertions.keys) {
-            assertThat(reply[key], equalTo(assertions[key]))
-        }
+    @Test
+    fun `Organisation address is not mandatory`() {
+        mockMvc.perform(
+            post("/organisations").contentType(APPLICATION_JSON).content(orgRequestJson())
+        )
+            .andExpect(status().isOk)
+            .andReturn()
     }
 
-    private fun queryEntityFromDatabase(sql: String, id: UUID): MutableMap<String, Any> =
-        template.queryForMap(sql, id)
+    @Test
+    fun `Can add an address to a new organisation`() {
+        val organisation = RequestGenerator.org(address = RequestGenerator.address())
+            .let(mapper::writeValueAsString)
+            .let { request ->
+                mockMvc.perform(
+                    post("/organisations").contentType(APPLICATION_JSON).content(request)
+                )
+            }
+            .andExpect(status().isOk)
+            .andReturn()
+            .readValue<EntityResponse>()
+            .id
+            .let(organisationRepository::findById)
+            .orElseThrow()
 
-    private fun orgFromDatabase(id: UUID): MutableMap<String, Any> =
-        queryEntityFromDatabase("select * from organisations_schema.organisations where id = ?", id)
+        assertThat(organisation.address).isNotNull
 
-    private fun contactDetailsFromDatabase(id: UUID): MutableMap<String, Any> =
-        queryEntityFromDatabase("select * from organisations_schema.contact_details where id = ?", id)
+        organisation.address?.id
+            ?.let(addressRepository::findById)
+            ?.orElseThrow()
+            .also { address -> assertThat(address).isNotNull }
+    }
 
+    @Test
+    fun `Can add an address to an existing organisation`() {
+        val orgResult: EntityResponse = RequestGenerator.org()
+            .let(mapper::writeValueAsString)
+            .let { request ->
+                mockMvc.perform(
+                    post("/organisations").contentType(APPLICATION_JSON).content(request)
+                )
+            }
+            .andExpect(status().isOk)
+            .andReturn()
+            .readValue()
+
+        val country = countryRepository.findByCountryCode("DE").orElseThrow()
+        val city = cityRepository.findByCountryCodeAndName("DE", "Berlin").orElseThrow()
+
+        val addressJson = RequestGenerator.address(city = city.name, country = country.countryCode)
+            .let(mapper::writeValueAsString)
+
+        val organisation: OrganisationResponse = mockMvc.perform(
+            post("/organisations/${orgResult.id}/address")
+                .contentType(APPLICATION_JSON)
+                .content(addressJson)
+        )
+            .andExpect(status().isOk)
+            .andReturn()
+            .readValue()
+
+        assertThat(organisation.address).isNotNull
+
+    }
+
+
+    private inline fun <reified T> MvcResult.readValue(): T = mapper.readValue(response.contentAsString)
 }

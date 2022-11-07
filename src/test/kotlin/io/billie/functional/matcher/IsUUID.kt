@@ -2,7 +2,7 @@ package io.billie.functional.matcher
 
 import org.hamcrest.Description
 import org.hamcrest.TypeSafeMatcher
-import java.util.*
+import java.util.UUID
 
 object IsUUID {
 

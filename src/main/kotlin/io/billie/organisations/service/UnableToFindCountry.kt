@@ -1,3 +1,3 @@
-package io.billie.organisations.data
+package io.billie.organisations.service
 
 class UnableToFindCountry(val countryCode: String) : RuntimeException()

@@ -1,35 +1,13 @@
 package io.billie.countries.data
 
-import io.billie.countries.model.CityResponse
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.core.RowMapper
+import org.springframework.data.repository.CrudRepository
 import org.springframework.stereotype.Repository
-import org.springframework.transaction.annotation.Transactional
-import java.sql.ResultSet
-import java.util.*
+import java.util.Optional
+import java.util.UUID
 
 @Repository
-class CityRepository {
+interface CityRepository : CrudRepository<City, UUID> {
+    fun findByCountryCode(countryCode: String): List<City>
 
-
-    @Autowired
-    lateinit var jdbcTemplate: JdbcTemplate
-
-    @Transactional(readOnly = true)
-    fun findByCountryCode(countryCode: String): List<CityResponse> {
-        return jdbcTemplate.query(
-            "select id, name, country_code from organisations_schema.cities where country_code = ?",
-            cityResponseMapper(),
-            countryCode
-        )
-    }
-
-    private fun cityResponseMapper() = RowMapper<CityResponse> { it: ResultSet, _: Int ->
-        CityResponse(
-            it.getObject("id", UUID::class.java),
-            it.getString("name"),
-            it.getString("country_code")
-        )
-    }
+    fun findByCountryCodeAndName(countryCode: String, name: String): Optional<City>
 }

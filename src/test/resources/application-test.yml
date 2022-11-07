@@ -1,0 +1,20 @@
+spring:
+  main:
+    banner-mode: off
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+        show_sql: false
+        generate_statistics: false
+        jdbc:
+          batch_size: 50
+    open-in-view: false
+  datasource:
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    url: jdbc:tc:postgresql:13.2-alpine://localhost:5432/organisations
+    username: postgres
+    password: postgres
+  test:
+    database:
+      replace: none

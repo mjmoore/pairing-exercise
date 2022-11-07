@@ -1,7 +1,7 @@
 package io.billie.functional.data
 
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.UUID
 import kotlin.collections.HashMap
 
 object Fixtures {
